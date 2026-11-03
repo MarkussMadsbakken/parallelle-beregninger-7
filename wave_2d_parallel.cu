@@ -216,10 +216,10 @@ void occupancy( void )
 
     double occ = (double)active_warps / max_warps_per_sm;
 
-    std::cout << "Grid size set to: %" << (N + 15)/16 << " x %" << (M + 15) / 16 << std::endl;
-    std::cout << "Block size set to: 16 x 16" << std::endl;
+    std::cout << "Grid size set to: " << (N + 15)/16 << "x" << (M + 15) / 16 << std::endl;
+    std::cout << "Block size set to: 16x16" << std::endl;
     std::cout << "Active blocks per SM: " << active_blocks_per_sm << std::endl;
-    std::cout << "Theoretical occupancy: " <<  occ * 100.0  << std::endl;
+    std::cout << "Theoretical occupancy: " <<  occ * 100.0 << "%" << std::endl;
 // END: T8
 }
 
