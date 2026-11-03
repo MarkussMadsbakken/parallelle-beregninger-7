@@ -1,0 +1,22 @@
+# Build outputs
+sequential
+parallel
+*.o
+*.out
+
+# Generated simulation data and plots
+data/
+data_sequential/
+images/
+wave.mp4
+
+# CMake / CLion
+cmake-build-*/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
