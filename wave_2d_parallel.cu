@@ -101,7 +101,7 @@ void domain_save ( int_t step )
     }
 
     for ( int_t i = 0; i < M; ++i ) {
-        size_t written = fwrite ( &U(i,0), sizeof(real_t), (size_t)N, out );
+        size_t written = fwrite ( &h_buffer[(i+1)*(N+2)+1], sizeof(real_t), (size_t)N, out );
         if ( written != (size_t)N ) {
             perror("fwrite");
             fclose(out);
