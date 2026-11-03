@@ -1,0 +1,18 @@
+1. The solution was provided within the handout, but the tldr is that a global function executes on the
+GPU but can only be called from the CPU, whereas a device function executes on the GPU and can only be
+called from the GPU
+
+2. Parallelizing with CUDA has some advantages compared to MPI. The most obvious is that we do not need to
+explicitly manage message passing between different processes, whereas all GPU threads share the same
+memory. We still have to manually pass memory between the GPU and the CPU, but at a much smaller scale.
+Additionally, all the launched GPU threads are very lightweight compared to spawning a new process
+on a CPU (albeit slower). However, MPI scales better over multiple machines. One can usually add more nodes with more
+memory of one runs out.
+
+3. The main advantage of using cooperative groups is that we can synchronize entire grids at once. However,
+it means that all of our blocks needs to compute at once, and we cannot spawn more blocks than the
+GPU can actually fit. Our 128x128 problem is much smaller than this limit on the NVIDIA T4, so we do
+not have to take this into consideration. However, if the problem grows, this needs to be addressed
+
+4. I got 100% theoretical occupancy. I cannot improve it since a T4 only can hold 32 warps, and we use
+all 32. However, the actual occupancy is probably much lower, as we dont actually use all avaiable threads

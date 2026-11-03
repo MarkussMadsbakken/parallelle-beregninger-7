@@ -210,16 +210,16 @@ void occupancy( void )
     cudaOccupancyMaxActiveBlocksPerMultiprocessor (
                         &active_blocks_per_sm, time_step, threads_per_block, 0 );
 
-    int warps_per_block  = (threads_per_block + prop.warpSize - 1) / prop.warpSize;
-    int active_warps     = active_blocks_per_sm * warps_per_block;
+    int warps_per_block = (threads_per_block + prop.warpSize - 1) / prop.warpSize;
+    int active_warps = active_blocks_per_sm * warps_per_block;
     int max_warps_per_sm = prop.maxThreadsPerMultiProcessor / prop.warpSize;
 
     double occ = (double)active_warps / max_warps_per_sm;
 
-    printf ( "Grid size set to: %" PRId64 " x %" PRId64 "\n", (N + 15) / 16, (M + 15) / 16 );
-    printf ( "Block size set to: 16 x 16\n" );
-    printf ( "Active blocks per SM: %d\n", active_blocks_per_sm );
-    printf ( "Theoretical occupancy: %.2f%%\n", occ * 100.0 );
+    std::cout << "Grid size set to: %" << (N + 15)/16 << " x %" << (M + 15) / 16 << std::endl;
+    std::cout << "Block size set to: 16 x 16" << std::endl;
+    std::cout << "Active blocks per SM: " << active_blocks_per_sm << std::endl;
+    std::cout << "Theoretical occupancy: " <<  occ * 100.0  << std::endl;
 // END: T8
 }
 
