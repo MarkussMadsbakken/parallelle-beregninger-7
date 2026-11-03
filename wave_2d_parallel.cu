@@ -51,11 +51,13 @@ real_t
 
 // Buffers for three time steps, indexed with 2 ghost points for the boundary
 real_t
-    *buffers[3] = { NULL, NULL, NULL };
+    *d_buffers[3] = { NULL, NULL, NULL }; // device buffers
+real_t
+    *h_buffer = NULL; //host buffer
 
-#define U_prv(i,j) buffers[0][((i)+1)*(N+2)+(j)+1]
-#define U(i,j)     buffers[1][((i)+1)*(N+2)+(j)+1]
-#define U_nxt(i,j) buffers[2][((i)+1)*(N+2)+(j)+1]
+#define U_prv(i,j) d_buffers[0][((i)+1)*(N+2)+(j)+1]
+#define U(i,j)     d_buffers[1][((i)+1)*(N+2)+(j)+1]
+#define U_nxt(i,j) d_buffers[2][((i)+1)*(N+2)+(j)+1]
 // END: T1b
 
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -71,10 +73,10 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 // Rotate the time step buffers.
 void move_buffer_window ( void )
 {
-    real_t *temp = buffers[0];
-    buffers[0] = buffers[1];
-    buffers[1] = buffers[2];
-    buffers[2] = temp;
+    real_t *temp = d_buffers[0];
+    d_buffers[0] = d_buffers[1];
+    d_buffers[1] = d_buffers[2];
+    d_buffers[2] = temp;
 }
 
 
@@ -119,9 +121,10 @@ void domain_save ( int_t step )
 void domain_finalize ( void )
 {
 // BEGIN: T4
-    free ( buffers[0] );
-    free ( buffers[1] );
-    free ( buffers[2] );
+    cudaFree ( d_buffers[0] );
+    cudaFree ( d_buffers[1] );
+    cudaFree ( d_buffers[2] );
+    free (h_buffer);
 // END: T4
 }
 
@@ -129,36 +132,35 @@ void domain_finalize ( void )
 // TASK: T6
 // Neumann (reflective) boundary condition
 // BEGIN: T6
-void boundary_condition ( void )
-{
-    for ( int_t i=0; i<M; i++ )
-    {
-        U(i,-1) = U(i,1);
-        U(i,N)  = U(i,N-2);
-    }
-    for ( int_t j=0; j<N; j++ )
-    {
-        U(-1,j) = U(1,j);
-        U(M,j)  = U(M-2,j);
-    }
-}
+__device__ void boundary_condition ( real_t *cur, int_t M, int_t N, int_t i, int_t j ){
+    real_t *d_buffers[3] = { NULL, cur, NULL };
+
+    if ( i >= M || j >= N ) return;
+
+      if ( j == 0 )   U(i,-1) = U(i,1);
+      if ( j == N-1 ) U(i,N)  = U(i,N-2);
+      if ( i == 0 )   U(-1,j) = U(1,j);
+      if ( i == M-1 ) U(M,j)  = U(M-2,j);
+  }
 // END: T6
 
 
 // TASK: T5
 // Integration formula
 // BEGIN: T5
-void time_step ( void )
-{
-    for ( int_t i=0; i<M; i++ )
-    {
-        for ( int_t j=0; j<N; j++ )
-        {
-            U_nxt(i,j) = -U_prv(i,j) + 2.0*U(i,j)
-                     + (dt*dt*c*c)/(dx*dy) * (
-                        U(i-1,j)+U(i+1,j)+U(i,j-1)+U(i,j+1)-4.0*U(i,j)
-                     );
-        }
+void __global__ time_step(real_t *prv, real_t *cur, real_t *nxt, int_t M, int_t N, real_t dt){
+    auto grid = cu::this_grid();
+    real_t *d_buffers[3] = { prv, cur, nxt };
+    int_t j = blockIdx.x * blockDim.x + threadIdx.x;
+    int_t i = blockIdx.y * blockDim.y + threadIdx.y;
+    boundary_condition(cur, M, N, i, j);
+    grid.sync();
+
+    if (i < M && j < N) {
+        U_nxt(i,j) = -U_prv(i,j) + 2.0*U(i,j)
+                 + (dt*dt*c*c)/(dx*dy) * (
+                    U(i-1,j)+U(i+1,j)+U(i,j-1)+U(i,j+1)-4.0*U(i,j)
+                 );
     }
 }
 // END: T5
@@ -169,17 +171,21 @@ void time_step ( void )
 void simulate( void )
 {
 // BEGIN: T7
+    dim3 block ( 16, 16 );
+    dim3 grid  ( (N + block.x - 1) / block.x,
+                 (M + block.y - 1) / block.y );
     // Go through each time step
     for ( int_t iteration=0; iteration<=max_iteration; iteration++ )
     {
         if ( (iteration % snapshot_freq)==0 )
         {
+            cudaMemcpy ( h_buffer, d_buffers[1],(M+2)*(N+2)*sizeof(real_t),cudaMemcpyDeviceToHost );
             domain_save ( iteration / snapshot_freq );
         }
 
         // Derive step t+1 from steps t and t-1
-        boundary_condition();
-        time_step();
+        void *args[] = { &d_buffers[0], &d_buffers[1], &d_buffers[2], &M, &N, &dt };
+        cudaLaunchCooperativeKernel ( (void*)time_step, grid, block, args );
 
         // Rotate the time step buffers
         move_buffer_window();
@@ -194,6 +200,26 @@ void occupancy( void )
 {
 // BEGIN: T8
     ;
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties ( &prop, 0 );
+
+    int threads_per_block = 16 * 16;   // must match the block size in simulate()
+
+    // How many blocks of time_step fit on one SM at the same time
+    int active_blocks_per_sm = 0;
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor (
+                        &active_blocks_per_sm, time_step, threads_per_block, 0 );
+
+    int warps_per_block  = (threads_per_block + prop.warpSize - 1) / prop.warpSize;
+    int active_warps     = active_blocks_per_sm * warps_per_block;
+    int max_warps_per_sm = prop.maxThreadsPerMultiProcessor / prop.warpSize;
+
+    double occ = (double)active_warps / max_warps_per_sm;
+
+    printf ( "Grid size set to: %" PRId64 " x %" PRId64 "\n", (N + 15) / 16, (M + 15) / 16 );
+    printf ( "Block size set to: 16 x 16\n" );
+    printf ( "Active blocks per SM: %d\n", active_blocks_per_sm );
+    printf ( "Theoretical occupancy: %.2f%%\n", occ * 100.0 );
 // END: T8
 }
 
@@ -254,9 +280,8 @@ void domain_initialize ( void )
         exit( EXIT_FAILURE );
     }
 
-    buffers[0] = (real_t *) malloc ( (M+2)*(N+2)*sizeof(real_t) );
-    buffers[1] = (real_t *) malloc ( (M+2)*(N+2)*sizeof(real_t) );
-    buffers[2] = (real_t *) malloc ( (M+2)*(N+2)*sizeof(real_t) );
+    h_buffer = (real_t *) malloc ( (M+2)*(N+2)*sizeof(real_t) );
+    d_buffers[0] = d_buffers[1] = h_buffer;
 
     for ( int_t i=0; i<M; i++ )
     {
@@ -268,6 +293,20 @@ void domain_initialize ( void )
             U_prv(i,j) = U(i,j) = exp ( -4.0*delta*delta );
         }
     }
+
+    real_t *tmp_bufs[3] = {NULL, NULL, NULL};
+
+    cudaMalloc(&tmp_bufs[0], (M+2)*(N+2)*sizeof(real_t));
+    cudaMalloc(&tmp_bufs[1], (M+2)*(N+2)*sizeof(real_t));
+    cudaMalloc(&tmp_bufs[2], (M+2)*(N+2)*sizeof(real_t));
+
+    cudaMemcpy ( tmp_bufs[0], h_buffer, (M+2)*(N+2)*sizeof(real_t), cudaMemcpyHostToDevice );
+    cudaMemcpy ( tmp_bufs[1], h_buffer, (M+2)*(N+2)*sizeof(real_t), cudaMemcpyHostToDevice );
+    cudaMemset ( tmp_bufs[2], 0, (M+2)*(N+2)*sizeof(real_t) );
+
+    d_buffers[0] = tmp_bufs[0];
+    d_buffers[1] = tmp_bufs[1];
+    d_buffers[2] = tmp_bufs[2];
 
     // Set the time step for 2D case
     dt = dx*dy / (c * sqrt (dx*dx+dy*dy));
