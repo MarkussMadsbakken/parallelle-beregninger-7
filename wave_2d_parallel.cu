@@ -219,13 +219,13 @@ static bool init_cuda()
         cudaDeviceProp prop;
         cudaGetDeviceProperties(&prop, i);
 
-        std::cout << "Name: " << prop.name << std::endl;
-        std::cout << "Compute capability: " << prop.major << "." << prop.minor << std::endl;
-        std::cout << "Multiprocessors: " << prop.multiProcessorCount << std::endl;
-        std::cout << "Warp size: " << prop.warpSize << std::endl;
-        std::cout << "Global memory: " << prop.totalGlobalMem << std::endl;
-        std::cout << "Per block shared memory: " << prop.sharedMemPerBlock << std::endl;
-        std::cout << "Per Block registers: " << prop.regsPerBlock << std::endl;
+        std::cout << "\tName: " << prop.name << std::endl;
+        std::cout << "\tCompute capability: " << prop.major << "." << prop.minor << std::endl;
+        std::cout << "\tMultiprocessors: " << prop.multiProcessorCount << std::endl;
+        std::cout << "\tWarp size: " << prop.warpSize << std::endl;
+        std::cout << "\tGlobal memory: " << prop.totalGlobalMem << std::endl;
+        std::cout << "\tPer block shared memory: " << prop.sharedMemPerBlock << std::endl;
+        std::cout << "\tPer Block registers: " << prop.regsPerBlock << std::endl;
         std::cout << std::endl;
     }
 
